@@ -66,6 +66,7 @@ target_link_libraries(srt-xtransmit
 set_target_properties(srt-xtransmit
 	PROPERTIES
 	CXX_STANDARD ${REQUIRE_CXX_VER}
+	OUTPUT_NAME "srt-xtransmit-prometheus"
 	ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 	LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
