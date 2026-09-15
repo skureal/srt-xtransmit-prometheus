@@ -1,8 +1,8 @@
-# srt-xtransmit-prometheus-prometheus
+# srt-xtransmit-prometheus
 
-`srt-xtransmit-prometheus-prometheus` is a fork of [srt-xtransmit-prometheus](https://github.com/maxsharabayko/srt-xtransmit-prometheus) with an integrated Prometheus exporter for SRT socket statistics.
+`srt-xtransmit-prometheus` is a fork of [srt-xtransmit](https://github.com/maxsharabayko/srt-xtransmit) with an integrated Prometheus exporter for SRT socket statistics.
 
-It retains the original SRT/UDP testing functionality of `srt-xtransmit-prometheus` and adds a native HTTP `/metrics` endpoint. SRT statistics are read directly from the active SRT sockets without using CSV files or an external exporter.
+It retains the original SRT/UDP testing functionality of `srt-xtransmit` and adds a native HTTP `/metrics` endpoint. SRT statistics are read directly from the active SRT sockets without using CSV files or an external exporter.
 
 The Prometheus exporter is currently integrated into the live transmission commands:
 
@@ -30,7 +30,7 @@ Prometheus exporter: TCP/4200
 For a receiver:
 
 ```bash
-srt-xtransmit-prometheus-prometheus receive "srt://:4200"
+srt-xtransmit-prometheus receive "srt://:4200"
 ```
 
 Prometheus metrics are then available at:
@@ -51,7 +51,7 @@ The HTTP port can be overridden with:
 Start an SRT listener:
 
 ```bash
-srt-xtransmit-prometheus-prometheus receive "srt://:4200"
+srt-xtransmit-prometheus receive "srt://:4200"
 ```
 
 The exporter automatically listens on TCP port 4200:
@@ -63,7 +63,7 @@ curl http://127.0.0.1:4200/metrics
 To use a different Prometheus port:
 
 ```bash
-srt-xtransmit-prometheus-prometheus receive \
+srt-xtransmit-prometheus receive \
     "srt://:4200" \
     --stats-input-port 11001
 ```
@@ -80,7 +80,7 @@ Prometheus exporter: TCP/11001
 Example SRT generator:
 
 ```bash
-srt-xtransmit-prometheus-prometheus generate \
+srt-xtransmit-prometheus generate \
     -o "srt://192.168.2.121:4200" \
     --sendrate 10Mbps
 ```
@@ -95,7 +95,7 @@ Prometheus exporter: TCP/4200
 To override the exporter port:
 
 ```bash
-srt-xtransmit-prometheus-prometheus generate \
+srt-xtransmit-prometheus generate \
     -o "srt://192.168.2.121:4200" \
     --sendrate 10Mbps \
     --stats-output-port 11002
@@ -106,7 +106,7 @@ srt-xtransmit-prometheus-prometheus generate \
 A route can expose input and output SRT statistics independently:
 
 ```bash
-srt-xtransmit-prometheus-prometheus route \
+srt-xtransmit-prometheus route \
     -i "srt://:4200" \
     -o "srt://192.168.2.121:4300"
 ```
@@ -124,7 +124,7 @@ Output Prometheus:   TCP/4300
 The ports can be explicitly configured:
 
 ```bash
-srt-xtransmit-prometheus-prometheus route \
+srt-xtransmit-prometheus route \
     -i "srt://:4200" \
     -o "srt://192.168.2.121:4300" \
     --stats-input-port 11001 \
@@ -138,7 +138,7 @@ http://<host>:11001/metrics   # input
 http://<host>:11002/metrics   # output
 ```
 
-Input and output exporters must use different TCP ports. If automatic port selection results in the same TCP port for both sides, `srt-xtransmit-prometheus-prometheus` exits with an error and requires `--stats-input-port` and/or `--stats-output-port`.
+Input and output exporters must use different TCP ports. If automatic port selection results in the same TCP port for both sides, `srt-xtransmit-prometheus` exits with an error and requires `--stats-input-port` and/or `--stats-output-port`.
 
 ### Direction labels
 
@@ -315,7 +315,7 @@ does not have SRT socket statistics and therefore does not create an SRT Prometh
 mkdir -p projects/srt/srt-xtransmit
 cd projects/srt
 git clone --recurse-submodules \
-    https://github.com/<YOUR-GITHUB-USER>/srt-xtransmit-prometheus.git
+    https://github.com/skureal/srt-xtransmit-prometheus.git
 
 cd srt-xtransmit-prometheus
 ```
