@@ -199,7 +199,11 @@ CLI::App* xtransmit::route::add_subcommand(CLI::App& app, config& cfg, vector<st
 {
 	const map<string, int> to_ms{ {"s", 1000}, {"ms", 1} };
 
-	CLI::App* sc_route = app.add_subcommand("route", "Route data (SRT, UDP)")->fallthrough();
+	CLI::App* sc_route =
+		app.add_subcommand(
+		"route",
+		"Route data between SRT/UDP endpoints with optional Prometheus monitoring")
+	->fallthrough();
 	sc_route->add_option("-i,--input",  src_urls, "Source URIs");
 	sc_route->add_option("-o,--output", dst_urls, "Destination URIs");
 	sc_route->add_option("--msgsize", cfg.message_size, "Size of a buffer to receive message payload");
@@ -209,9 +213,19 @@ CLI::App* xtransmit::route::add_subcommand(CLI::App& app, config& cfg, vector<st
 	sc_route->add_option("--statsformat", cfg.stats_format, "output stats report format (json, csv)");
 	sc_route->add_option("--statsfreq", cfg.stats_freq_ms, "output stats report frequency (ms)")
 		->transform(CLI::AsNumberWithUnit(to_ms, CLI::AsNumberWithUnit::CASE_SENSITIVE));
-	sc_route->add_option("--stats-input-port", cfg.stats_input_port, "Prometheus exporter TCP port for input SRT statistics (default: input SRT UDP port)") ->check(CLI::Range(1, 65535));
+	sc_route->add_option(
+		"--stats-input-port",
+		cfg.stats_input_port,
+		"TCP port for the Prometheus exporter monitoring the input SRT socket "
+		"(default: use the input SRT UDP port)")
+		->check(CLI::Range(1, 65535));
 
-	sc_route->add_option("--stats-output-port", cfg.stats_output_port, "Prometheus exporter TCP port for output SRT statistics (default: output SRT UDP port)") ->check(CLI::Range(1, 65535));
+	sc_route->add_option(
+		"--stats-output-port",
+		cfg.stats_output_port,
+		"TCP port for the Prometheus exporter monitoring the output SRT socket "
+		"(default: use the output SRT UDP port)")
+		->check(CLI::Range(1, 65535));
 	return sc_route;
 }
 

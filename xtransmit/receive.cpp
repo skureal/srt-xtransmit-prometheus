@@ -272,7 +272,9 @@ CLI::App* xtransmit::receive::add_subcommand(CLI::App& app, config& cfg, std::ve
 	sc_receive->add_option("--statsformat", cfg.stats_format, "Output stats report format (csv - default, json)");
 	sc_receive->add_option("--statsfreq", cfg.stats_freq_ms, fmt::format("Output stats report frequency, ms (default {})", cfg.stats_freq_ms))
 		->transform(CLI::AsNumberWithUnit(to_ms, CLI::AsNumberWithUnit::CASE_SENSITIVE));
-	sc_receive->add_option("--stats-input-port", cfg.stats_input_port, "Prometheus exporter TCP port for input SRT statistics (default: SRT source UDP port)") ->check(CLI::Range(1, 65535));
+	sc_receive->add_option("--stats-input-port", cfg.stats_input_port, "TCP port for the Prometheus exporter monitoring the input SRT socket "
+	"(default: use the input SRT UDP port)")
+	->check(CLI::Range(1, 65535));
 	sc_receive->add_flag("--printmsg", cfg.print_notifications, "Print message to stdout");
 	sc_receive->add_flag("--enable-metrics", cfg.enable_metrics, "Enable checking metrics: jitter, latency, etc.");
 	sc_receive->add_option("--metricsfile", cfg.metrics_file, "Metrics output filename (default stdout)");

@@ -185,7 +185,12 @@ CLI::App* xtransmit::generate::add_subcommand(CLI::App& app, config& cfg, std::v
 	sc_generate->add_flag("--enable-metrics", cfg.enable_metrics, "Enable embeding metrics: latency, loss, reordering, jitter, etc.");
 	sc_generate->add_option("--playback-csv", cfg.playback_csv, "Input CSV file with timestamp of every packet");
 	sc_generate->add_flag("--spin-wait", cfg.spin_wait, "Use CPU-expensive spin waiting for better sending accuracy");
-	sc_generate->add_option("--stats-output-port", cfg.stats_output_port, "Prometheus exporter TCP port for output SRT statistics (default: SRT destination UDP port)") ->check(CLI::Range(1, 65535));
+	sc_generate->add_option(
+		"--stats-output-port",
+		cfg.stats_output_port,
+		"TCP port for the Prometheus exporter monitoring the output SRT socket "
+		"(default: use the output SRT UDP port)")
+		->check(CLI::Range(1, 65535));
 	apply_cli_opts(*sc_generate, cfg);
 
 	return sc_generate;
