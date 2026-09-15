@@ -17,6 +17,7 @@ target_include_directories(srt-xtransmit PUBLIC
 	${SRT_UTILS_INCLUDE_DIR}
 	${PTHREAD_INCLUDE_DIR}
 	${SSL_INCLUDE_DIRS}
+	${CMAKE_SOURCE_DIR}/submodule/cpp-httplib
 	)
 
 target_link_directories(srt-xtransmit PUBLIC ${SSL_LIBRARY_DIRS})
