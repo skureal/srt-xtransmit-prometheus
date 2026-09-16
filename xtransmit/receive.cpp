@@ -102,13 +102,24 @@ void run_pipe(
 	if (prometheus_exporter)
 		prometheus_exporter->add_socket(src);
 
-	vector<char>       buffer(cfg.message_size);
-	metrics::metrics_writer::shared_validator validator;
+	vector<char> buffer(cfg.message_size);
+	std::shared_ptr<metrics::validator> validator;
 
-	if (metrics)
+	if (cfg.enable_metrics)
 	{
 		validator = std::make_shared<metrics::validator>(conn_id);
-		metrics->add_validator(validator, conn_id);
+
+		/* Keep the traditional metrics writer working. */
+		if (metrics)
+		{
+			metrics->add_validator(validator, conn_id);
+		}
+
+		/* Register payload metrics with the integrated Prometheus exporter. */
+		if (prometheus_exporter)
+		{
+			prometheus_exporter->add_metrics_validator(src, validator);
+		}
 	}
 
 	std::ofstream dumpfile;
@@ -131,7 +142,10 @@ void run_pipe(
 	        metrics->remove_validator(conn_id);
 
 	    if (prometheus_exporter)
+	    {
+	        prometheus_exporter->remove_metrics_validator(conn_id);
 	        prometheus_exporter->remove_socket(conn_id);
+	    }
 
 	    on_done(conn_id);
 	    return;
@@ -153,7 +167,7 @@ void run_pipe(
 
 			if (cfg.print_notifications)
 				trace_message(bytes, buffer, sock.id());
-			if (metrics)
+			if (validator)
 			{
 				validator->validate_packet(const_buffer(buffer.data(), bytes));
 			}
@@ -186,9 +200,11 @@ void run_pipe(
 	if (metrics)
 		metrics->remove_validator(conn_id);
 
-	
 	if (prometheus_exporter)
-	prometheus_exporter->remove_socket(conn_id);
+	{
+		prometheus_exporter->remove_metrics_validator(conn_id);
+		prometheus_exporter->remove_socket(conn_id);
+	}
 
 	if (force_break)
 	{

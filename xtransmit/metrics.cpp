@@ -250,3 +250,58 @@ string validator::stats_csv()
 
 } // namespace metrics
 } // namespace xtransmit
+metrics_snapshot validator::snapshot() const
+{
+    std::lock_guard<std::mutex> lock(m_mtx);
+
+    metrics_snapshot result {};
+
+    const auto latency_min = m_latency.get_latency_min();
+    const auto latency_max = m_latency.get_latency_max();
+    const auto latency_avg = m_latency.get_latency_avg();
+
+    result.latency_min_valid =
+        latency_min != std::numeric_limits<long long>::max();
+
+    result.latency_max_valid =
+        latency_max != std::numeric_limits<long long>::min();
+
+    result.latency_avg_valid =
+        latency_avg != -1;
+
+    result.us_latency_min = latency_min;
+    result.us_latency_max = latency_max;
+    result.us_latency_avg = latency_avg;
+
+    result.us_jitter =
+        m_jitter.get_jitter();
+
+    result.us_delay_factor =
+        m_delay_factor.get_delay_factor();
+
+    const auto reorder_stats =
+        m_reorder.get_stats();
+
+    result.pkt_received =
+        reorder_stats.pkts_processed;
+
+    result.pkt_lost =
+        reorder_stats.pkts_lost;
+
+    result.pkt_reordered =
+        reorder_stats.pkts_reordered;
+
+    result.pkt_reorder_distance =
+        reorder_stats.reorder_dist;
+
+    const auto integrity_stats =
+        m_integrity.get_stats();
+
+    result.pkt_checksum_error =
+        integrity_stats.pkts_wrong_checksum;
+
+    result.pkt_length_error =
+        integrity_stats.pkts_wrong_len;
+
+    return result;
+}

@@ -7,6 +7,7 @@
 #include "httplib.h"
 #include "spdlog/spdlog.h"
 #include "srt_socket.hpp"
+#include "metrics.hpp"
 
 namespace xtransmit
 {
@@ -67,6 +68,36 @@ void exporter::add_socket(
         m_direction);
 }
 
+void exporter::add_metrics_validator(
+    const std::shared_ptr<socket::isocket>& sock,
+    const std::shared_ptr<metrics::validator>& validator)
+{
+    if (!sock || !validator)
+        return;
+
+    auto srt_sock =
+        std::dynamic_pointer_cast<socket::srt>(sock);
+
+    /*
+     * Payload metrics are only exported for SRT sockets.
+     */
+    if (!srt_sock)
+        return;
+
+    const int socket_id = srt_sock->id();
+
+    {
+        std::lock_guard<std::mutex> lock(
+            m_metrics_mutex);
+
+        m_metrics_validators[socket_id] = validator;
+    }
+
+    spdlog::info(
+        "PROMETHEUS Added xtransmit metrics validator @{} ({})",
+        socket_id,
+        m_direction);
+}
 
 void exporter::remove_socket(int socket_id)
 {
@@ -88,10 +119,36 @@ void exporter::remove_socket(int socket_id)
     }
 }
 
+void exporter::remove_metrics_validator(int socket_id)
+{
+    size_t removed = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(
+            m_metrics_mutex);
+
+        removed =
+            m_metrics_validators.erase(socket_id);
+    }
+
+    if (removed > 0)
+    {
+        spdlog::info(
+            "PROMETHEUS Removed xtransmit metrics validator @{} ({})",
+            socket_id,
+            m_direction);
+    }
+}
+
 std::string exporter::render_metrics()
 {
     std::vector<std::shared_ptr<socket::srt>> sockets;
 
+    std::vector<
+    std::pair<
+        int,
+        std::shared_ptr<metrics::validator>>>
+    metrics_validators;
     /*
      * Copy the shared pointers while holding the mutex.
      * The actual SRT statistics calls are done afterwards
@@ -105,6 +162,19 @@ std::string exporter::render_metrics()
             if (item.second)
                 sockets.push_back(item.second);
         }
+    }
+    {
+    std::lock_guard<std::mutex> lock(
+        m_metrics_mutex);
+
+    for (const auto& item : m_metrics_validators)
+    {
+        if (item.second)
+        {
+            metrics_validators.push_back(
+                item);
+        }
+    }
     }
 
     std::ostringstream out;
@@ -559,6 +629,68 @@ std::string exporter::render_metrics()
         "# TYPE srt_pkt_rcv_filter_loss gauge\n";
 
     /*
+ * xtransmit payload metrics.
+ *
+ * These metrics are calculated by metrics::validator from metadata
+ * embedded into the generated packet payload by --enable-metrics.
+ */
+
+out <<
+    "# HELP srt_xtransmit_us_latency_min "
+    "Minimum xtransmit payload latency in microseconds\n"
+    "# TYPE srt_xtransmit_us_latency_min gauge\n";
+
+out <<
+    "# HELP srt_xtransmit_us_latency_max "
+    "Maximum xtransmit payload latency in microseconds\n"
+    "# TYPE srt_xtransmit_us_latency_max gauge\n";
+
+out <<
+    "# HELP srt_xtransmit_us_latency_avg "
+    "Average xtransmit payload latency in microseconds\n"
+    "# TYPE srt_xtransmit_us_latency_avg gauge\n";
+
+out <<
+    "# HELP srt_xtransmit_us_jitter "
+    "xtransmit interarrival jitter in microseconds\n"
+    "# TYPE srt_xtransmit_us_jitter gauge\n";
+
+out <<
+    "# HELP srt_xtransmit_us_delay_factor "
+    "xtransmit time-stamped delay factor in microseconds\n"
+    "# TYPE srt_xtransmit_us_delay_factor gauge\n";
+
+out <<
+    "# HELP srt_xtransmit_pkt_received_total "
+    "Total number of payload packets processed by xtransmit metrics\n"
+    "# TYPE srt_xtransmit_pkt_received_total counter\n";
+
+out <<
+    "# HELP srt_xtransmit_pkt_lost_total "
+    "Total number of payload packets detected as lost by xtransmit metrics\n"
+    "# TYPE srt_xtransmit_pkt_lost_total counter\n";
+
+out <<
+    "# HELP srt_xtransmit_pkt_reordered_total "
+    "Total number of reordered payload packets detected by xtransmit metrics\n"
+    "# TYPE srt_xtransmit_pkt_reordered_total counter\n";
+
+out <<
+    "# HELP srt_xtransmit_pkt_reorder_distance "
+    "Payload packet reorder distance detected by xtransmit metrics\n"
+    "# TYPE srt_xtransmit_pkt_reorder_distance gauge\n";
+
+out <<
+    "# HELP srt_xtransmit_pkt_checksum_error_total "
+    "Total number of payload packets with checksum errors\n"
+    "# TYPE srt_xtransmit_pkt_checksum_error_total counter\n";
+
+out <<
+    "# HELP srt_xtransmit_pkt_length_error_total "
+    "Total number of payload packets with length errors\n"
+    "# TYPE srt_xtransmit_pkt_length_error_total counter\n";
+
+    /*
      * Read statistics from every currently registered SRT socket.
      */
     for (const auto& sock : sockets)
@@ -968,6 +1100,109 @@ std::string exporter::render_metrics()
             << labels << " "
             << stats.pktRcvFilterLoss << "\n";
     }
+/*
+ * Export xtransmit payload metrics.
+ *
+ * The snapshot is non-destructive: a Prometheus scrape must not
+ * reset latency or delay-factor statistics.
+ */
+for (const auto& item : metrics_validators)
+{
+    const int socket_id = item.first;
+    const auto& validator = item.second;
+
+    if (!validator)
+        continue;
+
+    const auto snapshot =
+        validator->snapshot();
+
+    const std::string labels =
+        "{direction=\"" +
+        m_direction +
+        "\",socket_id=\"" +
+        std::to_string(socket_id) +
+        "\"}";
+
+    /*
+     * Latency does not have a valid value until at least one
+     * suitable metrics-enabled payload packet has been received.
+     */
+    if (snapshot.latency_min_valid)
+    {
+        out <<
+            "srt_xtransmit_us_latency_min"
+            << labels << " "
+            << snapshot.us_latency_min
+            << "\n";
+    }
+
+    if (snapshot.latency_max_valid)
+    {
+        out <<
+            "srt_xtransmit_us_latency_max"
+            << labels << " "
+            << snapshot.us_latency_max
+            << "\n";
+    }
+
+    if (snapshot.latency_avg_valid)
+    {
+        out <<
+            "srt_xtransmit_us_latency_avg"
+            << labels << " "
+            << snapshot.us_latency_avg
+            << "\n";
+    }
+
+    out <<
+        "srt_xtransmit_us_jitter"
+        << labels << " "
+        << snapshot.us_jitter
+        << "\n";
+
+    out <<
+        "srt_xtransmit_us_delay_factor"
+        << labels << " "
+        << snapshot.us_delay_factor
+        << "\n";
+
+    out <<
+        "srt_xtransmit_pkt_received_total"
+        << labels << " "
+        << snapshot.pkt_received
+        << "\n";
+
+    out <<
+        "srt_xtransmit_pkt_lost_total"
+        << labels << " "
+        << snapshot.pkt_lost
+        << "\n";
+
+    out <<
+        "srt_xtransmit_pkt_reordered_total"
+        << labels << " "
+        << snapshot.pkt_reordered
+        << "\n";
+
+    out <<
+        "srt_xtransmit_pkt_reorder_distance"
+        << labels << " "
+        << snapshot.pkt_reorder_distance
+        << "\n";
+
+    out <<
+        "srt_xtransmit_pkt_checksum_error_total"
+        << labels << " "
+        << snapshot.pkt_checksum_error
+        << "\n";
+
+    out <<
+        "srt_xtransmit_pkt_length_error_total"
+        << labels << " "
+        << snapshot.pkt_length_error
+        << "\n";
+}
 
     return out.str();
 }

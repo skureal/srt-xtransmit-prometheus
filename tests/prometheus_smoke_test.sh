@@ -102,6 +102,46 @@ wait_positive_metric()
     return 1
 }
 
+wait_zero_metric()
+{
+    local port="$1"
+    local pattern="$2"
+
+    for _ in $(seq 1 50); do
+        local value
+
+        value="$(
+            curl -sf "http://127.0.0.1:${port}/metrics" 2>/dev/null \
+                | grep "$pattern" \
+                | head -1 \
+                | awk '{print $2}'
+        )"
+
+        if [[ -n "${value}" ]] && \
+           awk -v v="${value}" 'BEGIN { exit !(v == 0) }'; then
+            return 0
+        fi
+
+        sleep 0.2
+    done
+
+    return 1
+}
+
+
+metric_must_not_exist()
+{
+    local port="$1"
+    local pattern="$2"
+
+    if curl -sf "http://127.0.0.1:${port}/metrics" \
+        | grep -q "$pattern"; then
+        return 1
+    fi
+
+    return 0
+}
+
 trap cleanup EXIT INT TERM
 
 
@@ -333,6 +373,301 @@ pass "route exposes independent input and output statistics"
 
 stop_processes
 
+#
+# Test 5
+# xtransmit payload metrics
+#
+
+echo
+echo "TEST 5: xtransmit payload metrics"
+
+
+#
+# Test 5a
+# Payload metrics must NOT appear without --enable-metrics
+#
+
+echo "  5a: metrics disabled"
+
+"$BIN" receive \
+    "srt://:4500?latency=120" \
+    --stats-input-port 14500 \
+    >"$TMPDIR_TEST/metrics-disabled-receiver.log" 2>&1 &
+
+PIDS+=("$!")
+
+wait_http 14500 \
+    || fail "Metrics-disabled receiver exporter did not start"
+
+
+"$BIN" generate \
+    -o "srt://127.0.0.1:4500?latency=120" \
+    --sendrate 10Mbps \
+    --duration 5 \
+    --stats-output-port 14501 \
+    >"$TMPDIR_TEST/metrics-disabled-generator.log" 2>&1 &
+
+PIDS+=("$!")
+
+
+wait_metric 14500 \
+    'srt_active_connections{direction="input"} 1' \
+    || fail "Metrics-disabled receiver did not get an SRT connection"
+
+
+#
+# Give the stream a moment to transfer packets.
+#
+
+sleep 1
+
+
+metric_must_not_exist 14500 \
+    '^srt_xtransmit_pkt_received_total{' \
+    || fail "Payload metrics appeared although --enable-metrics was disabled"
+
+metric_must_not_exist 14500 \
+    '^srt_xtransmit_us_latency_avg{' \
+    || fail "Latency metrics appeared although --enable-metrics was disabled"
+
+
+pass "no payload metrics without --enable-metrics"
+
+stop_processes
+
+
+#
+# Test 5b
+# Payload metrics enabled
+#
+
+echo "  5b: metrics enabled"
+
+"$BIN" receive \
+    "srt://:4510?latency=120" \
+    --enable-metrics \
+    --stats-input-port 14510 \
+    >"$TMPDIR_TEST/metrics-enabled-receiver.log" 2>&1 &
+
+PIDS+=("$!")
+
+wait_http 14510 \
+    || fail "Metrics-enabled receiver exporter did not start"
+
+
+"$BIN" generate \
+    -o "srt://127.0.0.1:4510?latency=120" \
+    --sendrate 10Mbps \
+    --duration 10 \
+    --enable-metrics \
+    --stats-output-port 14511 \
+    >"$TMPDIR_TEST/metrics-enabled-generator.log" 2>&1 &
+
+PIDS+=("$!")
+
+
+wait_http 14511 \
+    || fail "Metrics-enabled generator exporter did not start"
+
+
+wait_metric 14510 \
+    'srt_active_connections{direction="input"} 1' \
+    || fail "Metrics-enabled receiver did not get an SRT connection"
+
+
+#
+# Payload metrics must become available on receiver.
+#
+
+wait_positive_metric 14510 \
+    '^srt_xtransmit_pkt_received_total{direction="input"' \
+    || fail "xtransmit pkt_received_total did not become positive"
+
+
+wait_positive_metric 14510 \
+    '^srt_xtransmit_us_latency_avg{direction="input"' \
+    || fail "xtransmit latency_avg did not become positive"
+
+
+#
+# Check that all expected metrics exist.
+#
+
+for metric in \
+    srt_xtransmit_us_latency_min \
+    srt_xtransmit_us_latency_max \
+    srt_xtransmit_us_latency_avg \
+    srt_xtransmit_us_jitter \
+    srt_xtransmit_us_delay_factor \
+    srt_xtransmit_pkt_received_total \
+    srt_xtransmit_pkt_lost_total \
+    srt_xtransmit_pkt_reordered_total \
+    srt_xtransmit_pkt_reorder_distance \
+    srt_xtransmit_pkt_checksum_error_total \
+    srt_xtransmit_pkt_length_error_total
+do
+
+    wait_metric 14510 \
+        "^${metric}{direction=\"input\"" \
+        || fail "Expected payload metric missing: ${metric}"
+
+done
+
+
+#
+# localhost test should normally be loss/error free.
+#
+
+wait_zero_metric 14510 \
+    '^srt_xtransmit_pkt_lost_total{direction="input"' \
+    || fail "Unexpected payload packet loss on localhost test"
+
+
+wait_zero_metric 14510 \
+    '^srt_xtransmit_pkt_checksum_error_total{direction="input"' \
+    || fail "Unexpected checksum errors on localhost test"
+
+
+wait_zero_metric 14510 \
+    '^srt_xtransmit_pkt_length_error_total{direction="input"' \
+    || fail "Unexpected payload length errors on localhost test"
+
+
+#
+# Payload analysis belongs to the receiver.
+# The generator must not expose latency metrics itself.
+#
+
+metric_must_not_exist 14511 \
+    '^srt_xtransmit_us_latency_avg{' \
+    || fail "Generator unexpectedly exports receiver payload latency metrics"
+
+
+pass "xtransmit payload metrics are exported by the receiver"
+
+stop_processes
+
+
+#
+# Test 6
+# Traditional metrics CSV + Prometheus in parallel
+#
+
+echo
+echo "TEST 6: metricsfile + Prometheus compatibility"
+
+METRICS_CSV="$TMPDIR_TEST/xtransmit-metrics.csv"
+
+"$BIN" receive \
+    "srt://:4520?latency=120" \
+    --enable-metrics \
+    --metricsfile "$METRICS_CSV" \
+    --metricsfreq 1s \
+    --stats-input-port 14520 \
+    >"$TMPDIR_TEST/metricsfile-receiver.log" 2>&1 &
+
+PIDS+=("$!")
+
+wait_http 14520 \
+    || fail "Metricsfile receiver exporter did not start"
+
+
+"$BIN" generate \
+    -o "srt://127.0.0.1:4520?latency=120" \
+    --sendrate 10Mbps \
+    --duration 8 \
+    --enable-metrics \
+    --stats-output-port 14521 \
+    >"$TMPDIR_TEST/metricsfile-generator.log" 2>&1 &
+
+PIDS+=("$!")
+
+
+wait_metric 14520 \
+    'srt_active_connections{direction="input"} 1' \
+    || fail "Metricsfile test did not establish SRT connection"
+
+
+#
+# Prometheus payload metrics must work while metrics_writer is active.
+#
+
+wait_positive_metric 14520 \
+    '^srt_xtransmit_pkt_received_total{direction="input"' \
+    || fail "Prometheus payload metrics unavailable with --metricsfile"
+
+
+wait_positive_metric 14520 \
+    '^srt_xtransmit_us_latency_avg{direction="input"' \
+    || fail "Prometheus latency unavailable with --metricsfile"
+
+
+#
+# Wait until the CSV writer has produced header + data rows.
+#
+
+for _ in $(seq 1 50); do
+    if [[ -f "$METRICS_CSV" ]] && \
+       [[ "$(wc -l < "$METRICS_CSV")" -ge 3 ]]; then
+        break
+    fi
+
+    sleep 0.2
+done
+
+
+[[ -f "$METRICS_CSV" ]] \
+    || fail "Metrics CSV file was not created"
+
+
+[[ "$(wc -l < "$METRICS_CSV")" -ge 3 ]] \
+    || fail "Metrics CSV did not contain enough samples"
+
+
+#
+# Validate CSV header.
+#
+
+head -1 "$METRICS_CSV" \
+    | grep -q \
+    'Timepoint,iConn,usLatencyMin,usLatencyMax,usLatencyAvg,usJitter,usDelayFactor,pktReceived,pktLost,pktReordered,pktReorderDist,pktChecksumError,pktLengthError' \
+    || fail "Unexpected metrics CSV header"
+
+
+#
+# At least one CSV sample must contain received packets.
+#
+
+awk -F',' '
+    NR > 1 && $8 > 0 {
+        found=1
+    }
+    END {
+        exit !found
+    }
+' "$METRICS_CSV" \
+    || fail "Metrics CSV never reported received packets"
+
+
+#
+# Prometheus must still work after several CSV reporting intervals.
+#
+
+sleep 2
+
+wait_positive_metric 14520 \
+    '^srt_xtransmit_pkt_received_total{direction="input"' \
+    || fail "Prometheus payload metrics stopped while CSV writer was active"
+
+
+metric_must_not_exist 14521 \
+    '^srt_xtransmit_us_latency_avg{' \
+    || fail "Generator unexpectedly exports receiver payload metrics"
+
+
+pass "metricsfile and Prometheus payload metrics work in parallel"
+
+stop_processes
 
 echo
 echo "========================================"

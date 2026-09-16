@@ -38,7 +38,24 @@ namespace metrics
 	/// @param payload the payload
 	/// @return true if the checksum is correct, false otherwise.
 	bool validate_packet_checksum(const const_buffer& payload);
+	struct metrics_snapshot
+	{
+	    long long us_latency_min;
+	    long long us_latency_max;
+	    long long us_latency_avg;
 
+	    uint64_t us_jitter;
+	    int64_t  us_delay_factor;
+	    uint64_t pkt_received;
+	    uint64_t pkt_lost;
+	    uint64_t pkt_reordered;
+	    uint64_t pkt_reorder_distance;
+	    uint64_t pkt_checksum_error;
+	    uint64_t pkt_length_error;
+	    bool latency_min_valid;
+	    bool latency_max_valid;
+	    bool latency_avg_valid;
+	};
 	class generator
 	{
 	public:
@@ -98,7 +115,7 @@ namespace metrics
 			m_delay_factor.submit_sample(std_timestamp, std_time_now);
 			m_reorder.submit_sample(pktseqno);
 		}
-
+		metrics_snapshot snapshot() const;
 		std::string stats();
 		std::string stats_csv();
 		static std::string stats_csv_header();
