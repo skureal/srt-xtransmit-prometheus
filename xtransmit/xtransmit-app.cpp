@@ -128,7 +128,7 @@ int main(int argc, char** argv)
 	app.set_version_flag(
     "--version",
     string(
-        "srt-xtransmit-prometheus v0.1.0\n"
+        "srt-xtransmit-prometheus v0.1.1\n"
         "Based on srt-xtransmit v0.3.0\n"
         "SRT library v")
         + SRT_VERSION_STRING
