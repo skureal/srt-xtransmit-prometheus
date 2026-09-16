@@ -277,6 +277,10 @@ does not have SRT socket statistics and therefore does not create an SRT Prometh
 
 ---
 
+## From original srt-xtransmit
+
+`srt-xtransmit` is a testing utility with support for SRT and UDP network protocols.
+
 ## Functionality
 
 ### Live Transmission Commands
@@ -314,10 +318,7 @@ does not have SRT socket statistics and therefore does not create an SRT Prometh
 ```shell
 mkdir -p projects/srt/srt-xtransmit
 cd projects/srt
-git clone --recurse-submodules \
-    https://github.com/skureal/srt-xtransmit-prometheus.git
-
-cd srt-xtransmit-prometheus
+git clone https://github.com/maxsharabayko/srt-xtransmit.git srt-xtransmit
 ```
 
 #### 2. Initialize, fetch and checkout submodules
@@ -502,4 +503,3 @@ srt-xtransmit file send srcfolder/ "srt://127.0.0.1:4200" --statsfile stats-snd.
 ```shell
 srt-xtransmit file receive "srt://:4200" ./ --statsfile stats-rcv.csv --statsfreq 1s
 ```
-
